@@ -1,0 +1,2 @@
+# 毎週月曜日の9:00にAIレポートを出力
+0 9 * * 1 /usr/bin/env python3 /workspace/-/ai_monday_report.py >> /workspace/-/ai_monday_report.log 2>&1
