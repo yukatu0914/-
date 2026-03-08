@@ -1,11 +1,21 @@
-<div align="center">
+# 課堂任務完成排序工具
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+這是一個可直接在瀏覽器開啟的單頁工具：
 
-  <h1>Built with AI Studio</h2>
+- 不需要教師先匯入全班名單。
+- 學生完成任務後輸入 **學號 + 姓名** 送出。
+- 系統依送出時間自動排序名次。
+- 學生可以立即看到自己在已完成名單上的排序。
+- 「清除目前排行榜」需教師密碼驗證後才能執行。
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## 使用方式
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+1. 直接用瀏覽器開啟 `index.html`。
+2. 學生在表單輸入學號與姓名後送出。
+3. 下方「已完成名單」會即時顯示最新排名。
+4. 只有教師在「教師管理」輸入正確密碼後，才能清除排行榜。
 
-</div>
+## 備註
+
+- 預設教師密碼為 `teacher123`，可在 `index.html` 的 `TEACHER_PASSWORD` 常數自行修改。
+- 資料儲存在瀏覽器 `localStorage`，重新整理頁面後仍保留。

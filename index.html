@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>課堂任務完成排序工具</title>
+    <style>
+      :root {
+        --bg: #f5f7fb;
+        --card: #ffffff;
+        --text: #1f2937;
+        --muted: #6b7280;
+        --primary: #2563eb;
+        --danger: #dc2626;
+        --ok: #059669;
+        --border: #d1d5db;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+      h1 { margin: 0 0 12px; font-size: 1.8rem; }
+      .lead { margin: 0 0 18px; color: var(--muted); }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      .card h2 { margin: 0 0 12px; font-size: 1.15rem; }
+      form { display: grid; gap: 10px; }
+      label { display: grid; gap: 5px; font-size: 0.95rem; }
+      input, button { font: inherit; }
+      input {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 9px 10px;
+        width: 100%;
+      }
+      button {
+        border: none;
+        border-radius: 8px;
+        padding: 10px 12px;
+        cursor: pointer;
+        background: var(--primary);
+        color: white;
+        font-weight: 600;
+      }
+      button.danger { background: var(--danger); }
+      button:disabled {
+        background: #9ca3af;
+        cursor: not-allowed;
+      }
+      .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .status { margin-top: 8px; min-height: 1.4em; color: var(--muted); }
+      .status.ok { color: var(--ok); }
+      .status.error { color: var(--danger); }
+      table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+      th, td { border-bottom: 1px solid var(--border); text-align: left; padding: 8px 6px; }
+      th { font-weight: 700; color: #111827; }
+      .muted { color: var(--muted); font-size: 0.9rem; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>課堂任務完成排序工具</h1>
+      <p class="lead">學生完成任務後輸入學號與姓名送出，系統會依送出時間自動排序名次，學生可立即看到自己的排名。</p>
+
+      <section class="card">
+        <h2>學生登入完成任務</h2>
+        <form id="checkin-form">
+          <label>
+            學號
+            <input id="student-id" required maxlength="30" placeholder="例如 A11001" />
+          </label>
+          <label>
+            姓名
+            <input id="student-name" required maxlength="30" placeholder="例如 王小明" />
+          </label>
+          <div class="actions">
+            <button type="submit">完成任務，送出排名</button>
+          </div>
+          <p class="status" id="checkin-status"></p>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>已完成名單（依完成時間）</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>名次</th>
+              <th>學號</th>
+              <th>姓名</th>
+              <th>完成時間</th>
+            </tr>
+          </thead>
+          <tbody id="completed-body"></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>教師管理（清除排行榜）</h2>
+        <form id="teacher-form">
+          <label>
+            教師密碼
+            <input id="teacher-password" type="password" placeholder="請輸入教師密碼" />
+          </label>
+          <div class="actions">
+            <button type="submit">驗證教師身分</button>
+            <button type="button" class="danger" id="clear-all" disabled>清除目前排行榜</button>
+          </div>
+          <p class="status" id="teacher-status"></p>
+        </form>
+      </section>
+    </div>
+
+    <script>
+      const STORAGE_KEY = "classroom-checkin-v2";
+      const TEACHER_PASSWORD = "teacher123";
+      const state = loadState();
+      let teacherVerified = false;
+
+      const checkinForm = document.getElementById("checkin-form");
+      const studentIdInput = document.getElementById("student-id");
+      const studentNameInput = document.getElementById("student-name");
+      const checkinStatus = document.getElementById("checkin-status");
+      const completedBody = document.getElementById("completed-body");
+
+      const teacherForm = document.getElementById("teacher-form");
+      const teacherPasswordInput = document.getElementById("teacher-password");
+      const teacherStatus = document.getElementById("teacher-status");
+      const clearAllBtn = document.getElementById("clear-all");
+
+      checkinForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const id = studentIdInput.value.trim();
+        const name = studentNameInput.value.trim();
+
+        if (!id || !name) {
+          setStatus(checkinStatus, "請輸入學號與姓名", "error");
+          return;
+        }
+
+        const exists = state.completed.find((item) => item.id === id);
+        if (exists) {
+          const rank = getSortedCompleted().findIndex((item) => item.id === id) + 1;
+          setStatus(checkinStatus, `你已送出過，名次為第 ${rank} 名（${formatTime(exists.completedAt)}）`, "error");
+          return;
+        }
+
+        state.completed.push({ id, name, completedAt: Date.now() });
+        saveState();
+
+        const sorted = getSortedCompleted();
+        const rank = sorted.findIndex((item) => item.id === id) + 1;
+        setStatus(checkinStatus, `送出成功！${name} 目前名次：第 ${rank} 名`, "ok");
+        checkinForm.reset();
+        render();
+      });
+
+      teacherForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (teacherPasswordInput.value === TEACHER_PASSWORD) {
+          teacherVerified = true;
+          clearAllBtn.disabled = false;
+          setStatus(teacherStatus, "教師驗證成功，可清除排行榜。", "ok");
+          teacherPasswordInput.value = "";
+          return;
+        }
+
+        teacherVerified = false;
+        clearAllBtn.disabled = true;
+        setStatus(teacherStatus, "密碼錯誤，無法使用清除功能。", "error");
+      });
+
+      clearAllBtn.addEventListener("click", () => {
+        if (!teacherVerified) {
+          setStatus(teacherStatus, "請先完成教師驗證。", "error");
+          return;
+        }
+        if (!window.confirm("確定要清除目前排行榜嗎？")) return;
+        state.completed = [];
+        saveState();
+        setStatus(teacherStatus, "已清除排行榜", "ok");
+        setStatus(checkinStatus, "", "");
+        render();
+      });
+
+      function render() {
+        const completed = getSortedCompleted();
+        completedBody.innerHTML = "";
+
+        if (!completed.length) {
+          completedBody.innerHTML = '<tr><td colspan="4" class="muted">尚無學生送出</td></tr>';
+          return;
+        }
+
+        completed.forEach((item, index) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${index + 1}</td>
+            <td>${escapeHtml(item.id)}</td>
+            <td>${escapeHtml(item.name)}</td>
+            <td>${formatTime(item.completedAt)}</td>
+          `;
+          completedBody.appendChild(tr);
+        });
+      }
+
+      function getSortedCompleted() {
+        return [...state.completed].sort((a, b) => a.completedAt - b.completedAt);
+      }
+
+      function setStatus(el, message, type) {
+        el.textContent = message;
+        el.className = "status";
+        if (type) el.classList.add(type);
+      }
+
+      function formatTime(ts) {
+        return new Date(ts).toLocaleString("zh-TW", { hour12: false });
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function loadState() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return { completed: [] };
+          const parsed = JSON.parse(raw);
+          return { completed: Array.isArray(parsed.completed) ? parsed.completed : [] };
+        } catch {
+          return { completed: [] };
+        }
+      }
+
+      function saveState() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      }
+
+      render();
+    </script>
+  </body>
+</html>
