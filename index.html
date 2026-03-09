@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>課堂任務完成排序工具</title>
+    <title>課堂任務完成排序工具 (即時同步版)</title>
     <style>
       :root {
         --bg: #f5f7fb;
@@ -68,8 +68,8 @@
   </head>
   <body>
     <div class="container">
-      <h1>課堂任務完成排序工具</h1>
-      <p class="lead">學生完成任務後輸入學號與姓名送出，系統會依送出時間自動排序名次，學生可立即看到自己的排名。</p>
+      <h1>課堂任務完成排序工具 <small style="font-size: 0.5em; vertical-align: middle; color: #059669;">● 即時連線中</small></h1>
+      <p class="lead">全班同步顯示：學生完成任務後輸入資料，名次將即時更新在下方清單。</p>
 
       <section class="card">
         <h2>學生登入完成任務</h2>
@@ -83,7 +83,7 @@
             <input id="student-name" required maxlength="30" placeholder="例如 王小明" />
           </label>
           <div class="actions">
-            <button type="submit">完成任務，送出排名</button>
+            <button type="submit" id="submit-btn">完成任務，送出排名</button>
           </div>
           <p class="status" id="checkin-status"></p>
         </form>
@@ -120,10 +120,29 @@
       </section>
     </div>
 
-    <script>
-      const STORAGE_KEY = "classroom-checkin-v2";
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+      import { getDatabase, ref, push, onValue, set, query, orderByChild } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+      // ⚠️ 請在此處貼上你的 Firebase 設定 (從 Firebase Console 取得)
+     const firebaseConfig = {
+  apiKey: "AIzaSyA9vLJI2rVWD0H1Nv0cNcZqmjID-AK_6fM",
+  authDomain: "class-task-tracker.firebaseapp.com",
+  databaseURL: "https://class-task-tracker-default-rtdb.firebaseio.com",
+  projectId: "class-task-tracker",
+  storageBucket: "class-task-tracker.firebasestorage.app",
+  messagingSenderId: "689765180935",
+  appId: "1:689765180935:web:fab82f02723980be57aca2",
+  measurementId: "G-RWS36Y1RZ4"
+};
+
+      // 初始化 Firebase
+      const app = initializeApp(firebaseConfig);
+      const db = getDatabase(app);
+      const taskRef = ref(db, 'classroom_tasks');
+
       const TEACHER_PASSWORD = "teacher123";
-      const state = loadState();
+      let currentRecords = []; 
       let teacherVerified = false;
 
       const checkinForm = document.getElementById("checkin-form");
@@ -137,6 +156,24 @@
       const teacherStatus = document.getElementById("teacher-status");
       const clearAllBtn = document.getElementById("clear-all");
 
+      // --- 即時監聽資料庫變化 ---
+      onValue(taskRef, (snapshot) => {
+        const data = snapshot.val();
+        currentRecords = [];
+        
+        if (data) {
+          // 將 Firebase 的物件格式轉為陣列
+          currentRecords = Object.keys(data).map(key => ({
+            firebaseKey: key,
+            ...data[key]
+          }));
+          // 依照完成時間排序
+          currentRecords.sort((a, b) => a.completedAt - b.completedAt);
+        }
+        render(currentRecords);
+      });
+
+      // --- 學生送出邏輯 ---
       checkinForm.addEventListener("submit", (event) => {
         event.preventDefault();
         const id = studentIdInput.value.trim();
@@ -147,23 +184,29 @@
           return;
         }
 
-        const exists = state.completed.find((item) => item.id === id);
+        // 檢查是否重複
+        const exists = currentRecords.find((item) => item.id === id);
         if (exists) {
-          const rank = getSortedCompleted().findIndex((item) => item.id === id) + 1;
-          setStatus(checkinStatus, `你已送出過，名次為第 ${rank} 名（${formatTime(exists.completedAt)}）`, "error");
+          const rank = currentRecords.findIndex((item) => item.id === id) + 1;
+          setStatus(checkinStatus, `你已送出過，名次為第 ${rank} 名`, "error");
           return;
         }
 
-        state.completed.push({ id, name, completedAt: Date.now() });
-        saveState();
-
-        const sorted = getSortedCompleted();
-        const rank = sorted.findIndex((item) => item.id === id) + 1;
-        setStatus(checkinStatus, `送出成功！${name} 目前名次：第 ${rank} 名`, "ok");
-        checkinForm.reset();
-        render();
+        // 推送到 Firebase
+        push(taskRef, {
+          id: id,
+          name: name,
+          completedAt: Date.now()
+        }).then(() => {
+          setStatus(checkinStatus, `送出成功！`, "ok");
+          checkinForm.reset();
+        }).catch((err) => {
+          setStatus(checkinStatus, "系統錯誤，請聯絡老師", "error");
+          console.error(err);
+        });
       });
 
+      // --- 教師管理邏輯 ---
       teacherForm.addEventListener("submit", (event) => {
         event.preventDefault();
         if (teacherPasswordInput.value === TEACHER_PASSWORD) {
@@ -173,35 +216,32 @@
           teacherPasswordInput.value = "";
           return;
         }
-
         teacherVerified = false;
         clearAllBtn.disabled = true;
-        setStatus(teacherStatus, "密碼錯誤，無法使用清除功能。", "error");
+        setStatus(teacherStatus, "密碼錯誤。", "error");
       });
 
       clearAllBtn.addEventListener("click", () => {
-        if (!teacherVerified) {
-          setStatus(teacherStatus, "請先完成教師驗證。", "error");
-          return;
-        }
-        if (!window.confirm("確定要清除目前排行榜嗎？")) return;
-        state.completed = [];
-        saveState();
-        setStatus(teacherStatus, "已清除排行榜", "ok");
-        setStatus(checkinStatus, "", "");
-        render();
+        if (!teacherVerified) return;
+        if (!window.confirm("確定要清除所有人的進度嗎？（不可復原）")) return;
+        
+        // 清空 Firebase 資料庫該節點
+        set(taskRef, null).then(() => {
+          setStatus(teacherStatus, "已清除資料庫", "ok");
+          setStatus(checkinStatus, "", "");
+        });
       });
 
-      function render() {
-        const completed = getSortedCompleted();
+      // --- 介面渲染 ---
+      function render(records) {
         completedBody.innerHTML = "";
 
-        if (!completed.length) {
+        if (records.length === 0) {
           completedBody.innerHTML = '<tr><td colspan="4" class="muted">尚無學生送出</td></tr>';
           return;
         }
 
-        completed.forEach((item, index) => {
+        records.forEach((item, index) => {
           const tr = document.createElement("tr");
           tr.innerHTML = `
             <td>${index + 1}</td>
@@ -211,10 +251,6 @@
           `;
           completedBody.appendChild(tr);
         });
-      }
-
-      function getSortedCompleted() {
-        return [...state.completed].sort((a, b) => a.completedAt - b.completedAt);
       }
 
       function setStatus(el, message, type) {
@@ -235,23 +271,6 @@
           .replaceAll('"', "&quot;")
           .replaceAll("'", "&#39;");
       }
-
-      function loadState() {
-        try {
-          const raw = localStorage.getItem(STORAGE_KEY);
-          if (!raw) return { completed: [] };
-          const parsed = JSON.parse(raw);
-          return { completed: Array.isArray(parsed.completed) ? parsed.completed : [] };
-        } catch {
-          return { completed: [] };
-        }
-      }
-
-      function saveState() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      }
-
-      render();
     </script>
   </body>
 </html>
